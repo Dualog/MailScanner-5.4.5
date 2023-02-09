@@ -245,7 +245,7 @@ sub ScanBatch {
 	#
 	# Print out attachment names for Dualog MailDefence
 	#
-        MailScanner::Log::InfoLog("Attachment: %s::%s", $id, $notypesafename)
+        MailScanner::Log::InfoLog("Attachment: %s::%s", $id, $notypesafename);
 	
         #
         # Implement simple all-matches rulesets for allowing and denying files
