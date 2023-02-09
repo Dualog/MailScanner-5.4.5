@@ -132,8 +132,8 @@ my %Scanners = (
   "f-secure"	=> {
     Name		=> 'F-Secure',
     Lock		=> 'f-secureBusy.lock',
-    CommonOptions	=> '--dumb --archive',
-    DisinfectOptions	=> '--auto --disinf',
+    CommonOptions	=> '',
+    DisinfectOptions	=> '',
     ScanOptions		=> '',
     InitParser		=> \&InitFSecureParser,
     ProcessOutput	=> \&ProcessFSecureOutput,
@@ -1603,6 +1603,7 @@ sub ProcessSophosOutput {
   $logout = $line;
   $logout =~ s/%/%%/g;
   $logout =~ s/\s{20,}/ /g;
+  $logout = $Name . "::" . $logout;
   MailScanner::Log::InfoLog($logout) if $line =~ /error/i;
   # JKF Improved to handle multi-part split archives,
   # JKF which Sophos whinges about
@@ -1659,7 +1660,12 @@ sub ProcessSophosOutput {
   # Check for absolute path in Sophos Output (forward compatibility)
   $infected =~ s|$BaseDir(?=/)|\.|;
 
-  ($dot, $id, $part, @rest) = split(/\//, $infected);
+  #($dot, $id, $part, @rest) = split(/\//, $infected);
+  if ($infected =~ /^\./) {
+    ($dot, $id, $part, @rest) = split(/\//, $infected);
+  } else {
+    ($id, $part) = $infected =~ /.*\/incoming\/\d+\/([^\/]+)\/([^\/]+)/;
+  }
   #system("echo $dot, $id, $part, @rest >> /tmp/jkf");
   #system("echo $infections >> /tmp/jkf");
   my $notype = substr($part,1);
@@ -1733,6 +1739,9 @@ sub ProcessFSecureOutput {
     $fsecure_InHeader++;
     return 0;
   }
+  if ($line =~ /result=.*infection=/) {
+      $fsecure_InHeader++;
+  }
   # This test is more vague than it used to be, but is more tolerant to
   # output changes such as extra headers. Scanning non-scanning data is
   # not a great idea but causes no harm.
@@ -1743,10 +1752,6 @@ sub ProcessFSecureOutput {
   $logout = $line;
   $logout =~ s/%/%%/g;
   $logout =~ s/\s{20,}/ /g;
-
-  # If we are running the new version then there's a totally new parser here
-  # F-Secure 5.5 reports version 1.10
-  if ($fsecure_Version <= 3.0 || $fsecure_Version >= 4.50) {
 
     #./g4UFLJR23090/Keld Jrn Simonsen: Infected: EICAR_Test_File [F-Prot]
     #./g4UFLJR23090/Keld Jrn Simonsen: Infected: EICAR-Test-File [AVP]
@@ -1761,13 +1766,14 @@ sub ProcessFSecureOutput {
     #[./eicar.zip] eicar.com: Infected: EICAR_Test_File [Libra]
     #[./eicar.zip] eicar.com: Infected: EICAR Test File [Orion]
     #[./eicar.zip] eicar.com: Infected: EICAR-Test-File [AVP]
+    # ./eicar.com: result=infected infection=EICAR_Test_File
 
 
-    return 0 unless $line =~ /: Infected: /;
+    return 0 unless $line =~ /result=infected /;
     # The last 3 words are "Infected:" + name of virus + name of scanner
-    $line =~ s/: Infected: +(.+) \[.*?\]$//;
+    $line =~ s/: result=infected infection=(.+)$//;
     #print STDERR "Line is \"$line\"\n";
-    MailScanner::Log::NoticeLog("Virus Scanning: F-Secure found virus %s", $1);
+    MailScanner::Log::NoticeLog("F-Secure::INFECTED:: %s :: %s", $1, $line);
     # We are now left with the filename, or
     # then archive name followed by the filename within the archive.
     $line =~ s/^\[(.*?)\] .*$/$1/; # Strip signs of an archive
@@ -1786,37 +1792,7 @@ sub ProcessFSecureOutput {
     return 0 if $fsecure_Seen{$line};
     $fsecure_Seen{$line} = 1;
     return 1;
-  } else {
-    # We are running the old version, so use the old parser
-    # Prefer s/// to m// as less likely to do unpredictable things.
-    # We hope.
-    if ($line =~ /\tinfection:\s/) {
-      # Get to relevant filename in a reasonably but not
-      # totally robust manner (*impossible* to be totally robust
-      # if we have square brackets and spaces in filenames)
-      # Strip archive bits if present
-      $line =~ s/^\[(.*?)\] .+(\tinfection:.*)/$1$2/;
-
-      # Get to the meat or die trying...
-      $line =~ s/\tinfection:([^:]*).*$//
-        or MailScanner::Log::DieLog("Dodgy things going on in F-Secure output:\n$report\n");
-      $virus = $1;
-      $virus =~ s/^\s*(\S+).*$/$1/; # 1st word after Infection: is the virus
-      MailScanner::Log::NoticeLog("Virus Scanning: F-Secure found virus %s",$virus);
-
-      ($dot,$id,$part,@rest) = split(/\//, $line);
-      my $notype = substr($part,1);
-      $logout =~ s/\Q$part\E/$notype/;
-      $report =~ s/\Q$part\E/$notype/;
-
-      MailScanner::Log::InfoLog($logout);
-      $report = $Name . ': ' . $report if $Name;
-      $infections->{"$id"}{"$part"} .= $report . "\n";
-      $types->{"$id"}{"$part"} .= "v"; # so we know what to tell sender
-      return 1;
-    }
     MailScanner::Log::DieLog("Either you've found a bug in MailScanner's F-Secure output parser, or F-Secure's output format has changed! Please mail the author of MailScanner!\n");
-  }
 }
 
 # sub ProcessClamAVOutput {
@@ -2119,7 +2095,7 @@ sub ProcessAvastOutput {
 
   $infections->{"$id"}{"$part"} .= $report . "\n";
   $types->{"$id"}{"$part"} .= "v"; # it's a real virus
-  MailScanner::Log::InfoLog("Avast::INFECTED::$threat");
+  MailScanner::Log::InfoLog("Avast::INFECTED::$threat :: $path");
   return 1;
 }
 
@@ -2130,7 +2106,7 @@ sub ProcessEsetsOutput {
   chomp $line;
 
   # return if line does not had threat
-  return 0 if $line !~ m/threat/i;
+  return 0 if $line !~ m/result/i;
 
   # password protected
   return 0 if $line =~ m/protected/i;
@@ -2147,15 +2123,20 @@ sub ProcessEsetsOutput {
   my ($action) = $c =~ m/\"(.*)\"/;
   my ($info) = $d =~ m/\"(.*)\"/;
 
+  # Return if threat is empty (probably error reading, not a virus)
+  return if $threat eq "";
+
   my ($dot, $id, $part, @rest) = split(/\//, $filename);
   my $file = substr($part,1);
 
   if($info == ''){ $info = 'none'; }
 
   my $report = "Esets: found $threat in $file";
+    $report .= "Esets Actions: $action \n";
+    $report .= "Esets Additional Info: $info \n";
   $infections->{"$id"}{"$part"} .= $report . "\n";
   $types->{"$id"}{"$part"} .= "v"; # it's a real virus
-  MailScanner::Log::InfoLog("Esets::INFECTED::$threat");
+  MailScanner::Log::InfoLog("Esets::INFECTED::$threat :: $filename");
   return 1;
 }
 
@@ -2217,7 +2198,7 @@ sub ProcessDrwebOutput {
   $report = $Name . ': ' if $Name;
   $infections->{"$id"}{"$part"} .= "$report$notype was infected by $virus" . "\n";
   $types->{"$id"}{"$part"} .= "v"; # it's a real virus
-  MailScanner::Log::InfoLog("DrWeb::INFECTED::$virus");
+  MailScanner::Log::InfoLog("DrWeb::INFECTED::$virus :: $file");
   return 1;
 }
 
