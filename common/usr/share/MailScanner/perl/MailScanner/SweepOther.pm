@@ -31,6 +31,7 @@ use MIME::Head;
 use DirHandle;
 use HTML::TokeParser;
 use POSIX qw(:signal_h setsid); # For Solaris 9 SIG bug workaround
+use Digest::SHA;
 
 use vars qw($VERSION);
 
@@ -226,6 +227,9 @@ sub ScanBatch {
       #print STDERR "Searching for dodgy filenames in $id\n";
       #print STDERR "SafeFile2File = " . %{$message->{safefile2file}} . "\n";
       #while (($attach, $safename) = each %{$message->{file2safefile}}) {
+
+      my $sha = Digest::SHA->new(256);
+
       while (defined($safename = $messagefh->read())) {
         #print STDERR "Examinin $id/$safename\n";
         next unless -f "$id/$safename"; # Skip . and ..
@@ -245,7 +249,8 @@ sub ScanBatch {
 	#
 	# Print out attachment names for Dualog MailDefence
 	#
-        MailScanner::Log::InfoLog("Attachment: %s::%s", $id, $notypesafename);
+	$sha->addfile("$id/$safename");
+        MailScanner::Log::InfoLog("Attachment: %s::%s::%s", $id, $sha->hexdigest, $notypesafename);
 	
         #
         # Implement simple all-matches rulesets for allowing and denying files
