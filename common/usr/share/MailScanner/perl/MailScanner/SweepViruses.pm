@@ -2095,7 +2095,8 @@ sub ProcessAvastOutput {
 
   $infections->{"$id"}{"$part"} .= $report . "\n";
   $types->{"$id"}{"$part"} .= "v"; # it's a real virus
-  MailScanner::Log::InfoLog("Avast::INFECTED::$threat :: $path");
+  $threat =~ s/:/_/g;
+  MailScanner::Log::InfoLog("Avast::INFECTED:: $threat :: .$path");
   return 1;
 }
 
