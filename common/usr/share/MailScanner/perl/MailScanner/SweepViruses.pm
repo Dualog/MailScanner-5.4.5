@@ -2079,6 +2079,7 @@ sub ProcessAvastOutput {
 
   # password protected
   return 0 if $line =~ m/protected/i;
+  return 0 if $line =~ m/\[ERROR\]/i;
 
   # remove tabs
   $line =~ s/\t/ /g;
